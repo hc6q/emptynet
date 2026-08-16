@@ -2,7 +2,7 @@ services:
   - type: web
     name: emptynet
     runtime: node
-    plan: starter
+    plan: free
     autoDeployTrigger: checksPass
     buildCommand: npm run prepare:assets && npm run check
     startCommand: npm start
@@ -10,9 +10,5 @@ services:
     envVars:
       - key: NODE_VERSION
         value: 20
-      - key: DATA_DIR
-        value: /var/data
-    disk:
-      name: emptynet-world
-      mountPath: /var/data
-      sizeGB: 1
+      - key: DATABASE_URL
+        sync: false
