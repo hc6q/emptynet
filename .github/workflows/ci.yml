@@ -1,0 +1,33 @@
+name: EMPTYNET CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Prepare assets
+        run: npm run prepare:assets
+      - name: Syntax checks
+        run: npm run check
+      - name: Server smoke test
+        run: |
+          PORT=8099 node server.js > /tmp/emptynet.log 2>&1 &
+          PID=$!
+          trap 'kill $PID || true' EXIT
+          for i in {1..20}; do
+            if curl -fsS http://127.0.0.1:8099/healthz >/dev/null; then exit 0; fi
+            sleep 0.25
+          done
+          cat /tmp/emptynet.log
+          exit 1
