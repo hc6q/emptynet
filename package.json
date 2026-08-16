@@ -1,14 +1,16 @@
 {
   "name": "emptynet",
-  "version": "0.8.9",
+  "version": "0.9.0",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "prepare:assets": "node scripts/fetch-assets.mjs",
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "check": "node --check server.js && node --check public/app.js && node --check public/world-life.js && node --check public/node-7-v2.js && node --check public/settlement-v3.js"
+    "check": "node --check server.js && node --check public/app.js && node --check public/world-life.js && node --check public/node-7-v3.js && node --check public/settlement-v3.js"
   },
   "dependencies": {
     "pg": "^8.16.3"

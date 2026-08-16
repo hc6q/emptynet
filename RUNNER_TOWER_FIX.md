@@ -1,0 +1,1 @@
+EMPTYNET v0.9.0: runner movement is faster than other shells, Node 7 is rendered directly in the primary Three.js scene with shared camera/depth/terrain and collision, and the stalker encounter cadence is substantially reduced to preserve immersion.
