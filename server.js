@@ -3,13 +3,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { Pool } from 'pg';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const PUBLIC = path.join(__dirname, 'public');
 const DATA_DIR = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : __dirname;
-fs.mkdirSync(DATA_DIR, { recursive: true });
 const DATA_FILE = path.join(DATA_DIR, 'world-data.json');
+const DATABASE_URL = String(process.env.DATABASE_URL || '').trim();
 const PORT = Number(process.env.PORT || 8080);
 const WS_GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
 
@@ -25,34 +26,109 @@ const MIME = {
   '.svg': 'image/svg+xml'
 };
 
-function loadWorld() {
+function emptyWorld() {
+  return { notes: [], terminals: {}, echoes: [] };
+}
+
+function normalizeWorld(parsed) {
+  return {
+    notes: Array.isArray(parsed?.notes) ? parsed.notes : [],
+    terminals: parsed?.terminals && typeof parsed.terminals === 'object' ? parsed.terminals : {},
+    echoes: Array.isArray(parsed?.echoes) ? parsed.echoes : []
+  };
+}
+
+let pool = null;
+let persistenceMode = DATABASE_URL ? 'postgres' : 'file';
+let world = emptyWorld();
+let saveTimer = null;
+let saveChain = Promise.resolve();
+
+function loadWorldFromFile() {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
   try {
-    const parsed = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
-    return {
-      notes: Array.isArray(parsed.notes) ? parsed.notes : [],
-      terminals: parsed.terminals && typeof parsed.terminals === 'object' ? parsed.terminals : {},
-      echoes: Array.isArray(parsed.echoes) ? parsed.echoes : []
-    };
+    return normalizeWorld(JSON.parse(fs.readFileSync(DATA_FILE, 'utf8')));
   } catch {
-    return { notes: [], terminals: {}, echoes: [] };
+    return emptyWorld();
   }
 }
 
-let world = loadWorld();
-let saveTimer = null;
+async function initPersistence() {
+  if (!DATABASE_URL) {
+    world = loadWorldFromFile();
+    persistenceMode = 'file';
+    return;
+  }
+
+  const isLocal = /localhost|127\.0\.0\.1/.test(DATABASE_URL);
+  pool = new Pool({
+    connectionString: DATABASE_URL,
+    ssl: isLocal ? false : { rejectUnauthorized: false },
+    max: 4,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 10000
+  });
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS emptynet_state (
+      key TEXT PRIMARY KEY,
+      value JSONB NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  const result = await pool.query('SELECT value FROM emptynet_state WHERE key = $1', ['world']);
+  if (result.rows.length) {
+    world = normalizeWorld(result.rows[0].value);
+  } else {
+    world = loadWorldFromFile();
+    await pool.query(
+      'INSERT INTO emptynet_state (key, value) VALUES ($1, $2::jsonb) ON CONFLICT (key) DO NOTHING',
+      ['world', JSON.stringify(world)]
+    );
+  }
+  persistenceMode = 'postgres';
+}
+
+async function persistWorld() {
+  const snapshot = JSON.stringify(world);
+  if (pool) {
+    await pool.query(
+      `INSERT INTO emptynet_state (key, value, updated_at)
+       VALUES ($1, $2::jsonb, NOW())
+       ON CONFLICT (key)
+       DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+      ['world', snapshot]
+    );
+    return;
+  }
+
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+  fs.writeFileSync(DATA_FILE, JSON.stringify(world, null, 2));
+}
+
 function saveWorldSoon() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
-    fs.writeFileSync(DATA_FILE, JSON.stringify(world, null, 2));
-  }, 150);
+    saveChain = saveChain
+      .then(() => persistWorld())
+      .catch(error => console.error('EMPTYNET persistence error:', error));
+  }, 250);
 }
 
 const server = http.createServer((req, res) => {
   if (req.url === '/healthz') {
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
-    res.end(JSON.stringify({ ok: true, service: 'emptynet', seed: 28031997, clients: [...clients.values()].filter(p => p.joined).length }));
+    res.end(JSON.stringify({
+      ok: true,
+      service: 'emptynet',
+      seed: 28031997,
+      persistence: persistenceMode,
+      clients: [...clients.values()].filter(player => player.joined).length
+    }));
     return;
   }
+
   let pathname = decodeURIComponent(new URL(req.url, `http://${req.headers.host}`).pathname);
   if (pathname === '/') pathname = '/index.html';
   const file = path.normalize(path.join(PUBLIC, pathname));
@@ -149,7 +225,7 @@ function parseFrames(state, chunk, onText, onClose) {
 const clients = new Map();
 const WORLD_LIMIT = 1000000;
 const WORLD_SEED = 28031997;
-const ALLOWED_AVATARS = new Set(['wanderer','surveyor','hermit','runner']);
+const ALLOWED_AVATARS = new Set(['wanderer', 'surveyor', 'hermit', 'runner']);
 
 function safeName(name) {
   const clean = String(name || '').replace(/[^a-zA-Z0-9_\-.]/g, '').slice(0, 18);
@@ -353,6 +429,30 @@ server.on('upgrade', (req, socket) => {
   socket.on('error', () => disconnect(id, false));
 });
 
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`EMPTYNET listening on http://localhost:${PORT}`);
-});
+async function shutdown(signal) {
+  console.log(`EMPTYNET received ${signal}, flushing world state...`);
+  clearTimeout(saveTimer);
+  try {
+    await persistWorld();
+    await saveChain;
+  } catch (error) {
+    console.error('EMPTYNET shutdown persistence error:', error);
+  }
+  try { await pool?.end(); } catch { /* ignore */ }
+  server.close(() => process.exit(0));
+  setTimeout(() => process.exit(0), 4000).unref();
+}
+
+process.once('SIGTERM', () => shutdown('SIGTERM'));
+process.once('SIGINT', () => shutdown('SIGINT'));
+
+try {
+  await initPersistence();
+  server.listen(PORT, '0.0.0.0', () => {
+    console.log(`EMPTYNET listening on http://localhost:${PORT} [${persistenceMode}]`);
+  });
+} catch (error) {
+  console.error('EMPTYNET failed to initialize persistence:', error);
+  try { await pool?.end(); } catch { /* ignore */ }
+  process.exit(1);
+}
