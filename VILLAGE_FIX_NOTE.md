@@ -1,0 +1,1 @@
+The distant village now renders directly inside EMPTYNET's primary Three.js scene. It shares the exact camera, renderer, depth buffer and terrain function with the rest of the world, and its static structures register collision boxes with the main movement system. Building foundations extend into terrain to prevent visible floating on slopes.
