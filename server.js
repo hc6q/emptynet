@@ -27,14 +27,15 @@ const MIME = {
 };
 
 function emptyWorld() {
-  return { notes: [], terminals: {}, echoes: [] };
+  return { notes: [], terminals: {}, echoes: [], npcSeen: {} };
 }
 
 function normalizeWorld(parsed) {
   return {
     notes: Array.isArray(parsed?.notes) ? parsed.notes : [],
     terminals: parsed?.terminals && typeof parsed.terminals === 'object' ? parsed.terminals : {},
-    echoes: Array.isArray(parsed?.echoes) ? parsed.echoes : []
+    echoes: Array.isArray(parsed?.echoes) ? parsed.echoes : [],
+    npcSeen: parsed?.npcSeen && typeof parsed.npcSeen === 'object' && !Array.isArray(parsed.npcSeen) ? parsed.npcSeen : {}
   };
 }
 
@@ -226,6 +227,10 @@ const clients = new Map();
 const WORLD_LIMIT = 1000000;
 const WORLD_SEED = 28031997;
 const ALLOWED_AVATARS = new Set(['wanderer', 'surveyor', 'hermit', 'runner']);
+const NPC_ROLL_INTERVAL_MS = 5 * 60 * 1000;
+const NPC_ROLL_CHANCE = 0.10;
+const NPC_LIFETIME_MS = 8 * 60 * 1000;
+const NPC_HASH_KEY = String(process.env.NPC_HASH_SALT || DATABASE_URL || `emptynet-${WORLD_SEED}-guest-encounter`);
 
 function safeName(name) {
   const clean = String(name || '').replace(/[^a-zA-Z0-9_\-.]/g, '').slice(0, 18);
@@ -253,12 +258,217 @@ function publicPlayer(player) {
   };
 }
 
+function clientIpHash(req, socket) {
+  const forwardedHeader = req.headers['x-forwarded-for'];
+  const forwarded = Array.isArray(forwardedHeader)
+    ? forwardedHeader[0]
+    : String(forwardedHeader || '').split(',')[0];
+  const rawIp = String(forwarded || socket.remoteAddress || 'unknown').trim().replace(/^::ffff:/, '');
+  return crypto.createHmac('sha256', NPC_HASH_KEY).update(rawIp).digest('hex');
+}
+
+function markNpcSeen(player) {
+  if (!player.ipHash) return;
+  world.npcSeen[player.ipHash] = Date.now();
+  const entries = Object.entries(world.npcSeen);
+  if (entries.length > 20000) {
+    entries.sort((a, b) => Number(a[1]) - Number(b[1]));
+    for (const [key] of entries.slice(0, entries.length - 15000)) delete world.npcSeen[key];
+  }
+  saveWorldSoon();
+}
+
+function npcStillActive(player, npcId) {
+  return clients.get(player.id) === player && player.npc?.id === npcId;
+}
+
+function sendNpcChat(player, text) {
+  if (!player.npc) return;
+  send(player, {
+    type: 'chat',
+    id: player.npc.id,
+    name: player.npc.name,
+    text,
+    system: false
+  });
+}
+
+function chooseNpcWaypoint(player, npc, now) {
+  if (npc.stage === 'greeting_pending' || npc.stage === 'awaiting_answer') {
+    let dx = npc.x - player.x;
+    let dz = npc.z - player.z;
+    let len = Math.hypot(dx, dz);
+    if (len < 0.001) {
+      const angle = Math.random() * Math.PI * 2;
+      dx = Math.cos(angle);
+      dz = Math.sin(angle);
+      len = 1;
+    }
+    const standOff = 4.2 + Math.random() * 1.6;
+    npc.targetX = player.x + (dx / len) * standOff;
+    npc.targetZ = player.z + (dz / len) * standOff;
+    npc.nextWaypointAt = now + 8000;
+    return;
+  }
+
+  if (npc.stage === 'departing') {
+    let dx = npc.x - player.x;
+    let dz = npc.z - player.z;
+    let len = Math.hypot(dx, dz);
+    if (len < 0.001) {
+      const angle = Math.random() * Math.PI * 2;
+      dx = Math.cos(angle);
+      dz = Math.sin(angle);
+      len = 1;
+    }
+    npc.targetX = npc.x + (dx / len) * 35;
+    npc.targetZ = npc.z + (dz / len) * 35;
+    npc.nextWaypointAt = now + 15000;
+    return;
+  }
+
+  const angle = Math.random() * Math.PI * 2;
+  const radius = 7 + Math.random() * 15;
+  npc.targetX = player.x + Math.cos(angle) * radius;
+  npc.targetZ = player.z + Math.sin(angle) * radius;
+  npc.nextWaypointAt = now + 5500 + Math.random() * 6500;
+}
+
+function removeNpc(player, withDisconnectMessage = true) {
+  const npc = player.npc;
+  if (!npc) return;
+  if (withDisconnectMessage) send(player, { type: 'chat', name: 'SYSTEM', text: `${npc.name} disconnected.`, system: true });
+  player.npc = null;
+}
+
+function updateNpcMotion(player, now, dt) {
+  const npc = player.npc;
+  if (!npc) return;
+
+  if (now >= npc.expiresAt && npc.stage !== 'departing') {
+    npc.stage = 'departing';
+    chooseNpcWaypoint(player, npc, now);
+    const npcId = npc.id;
+    setTimeout(() => {
+      if (npcStillActive(player, npcId)) removeNpc(player, true);
+    }, 3000).unref?.();
+  }
+
+  const targetDistance = Math.hypot((npc.targetX ?? npc.x) - npc.x, (npc.targetZ ?? npc.z) - npc.z);
+  if (!Number.isFinite(npc.targetX) || !Number.isFinite(npc.targetZ) || targetDistance < 0.7 || now >= npc.nextWaypointAt) {
+    chooseNpcWaypoint(player, npc, now);
+  }
+
+  const dx = npc.targetX - npc.x;
+  const dz = npc.targetZ - npc.z;
+  const len = Math.hypot(dx, dz);
+  if (len > 0.001) {
+    const speed = npc.stage === 'departing' ? 2.35 : (npc.stage === 'wandering' ? 1.12 : 0.82);
+    const step = Math.min(len, speed * dt);
+    npc.x += (dx / len) * step;
+    npc.z += (dz / len) * step;
+    npc.rot = Math.atan2(dx, dz);
+  }
+  npc.zone = player.zone;
+}
+
+function spawnNpcEncounter(player) {
+  if (!player.joined || player.npc || !player.ipHash || world.npcSeen[player.ipHash]) return;
+
+  const angle = Math.random() * Math.PI * 2;
+  const radius = 17 + Math.random() * 13;
+  const now = Date.now();
+  const npc = {
+    id: `npc-${crypto.randomUUID()}`,
+    name: `guest${Math.floor(1000 + Math.random() * 9000)}`,
+    avatar: Math.random() < 0.55 ? 'wanderer' : 'hermit',
+    x: player.x + Math.cos(angle) * radius,
+    y: 0,
+    z: player.z + Math.sin(angle) * radius,
+    rot: angle + Math.PI,
+    zone: player.zone,
+    stage: 'wandering',
+    targetX: Number.NaN,
+    targetZ: Number.NaN,
+    nextWaypointAt: 0,
+    spawnedAt: now,
+    expiresAt: now + NPC_LIFETIME_MS
+  };
+  player.npc = npc;
+  markNpcSeen(player);
+  chooseNpcWaypoint(player, npc, now);
+
+  const npcId = npc.id;
+  const openingLines = ['hello?', 'is anyone there?', '...'];
+  setTimeout(() => {
+    if (!npcStillActive(player, npcId) || player.npc.stage !== 'wandering') return;
+    sendNpcChat(player, openingLines[Math.floor(Math.random() * openingLines.length)]);
+  }, 900 + Math.floor(Math.random() * 1600)).unref?.();
+}
+
+function handleNpcConversation(player, text) {
+  const npc = player.npc;
+  if (!npc || distance(player, npc) > 30) return;
+  const normalized = text
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+  const greeting = /(^|\s|[,.!?])(hi|hello|hey|oi|ola)(?=$|\s|[,.!?])/i.test(normalized);
+
+  if (npc.stage === 'wandering' && greeting) {
+    npc.stage = 'greeting_pending';
+    chooseNpcWaypoint(player, npc, Date.now());
+    const npcId = npc.id;
+    setTimeout(() => {
+      if (!npcStillActive(player, npcId) || player.npc.stage !== 'greeting_pending') return;
+      sendNpcChat(player, 'how did you find this world?');
+      player.npc.stage = 'awaiting_answer';
+      chooseNpcWaypoint(player, player.npc, Date.now());
+    }, 850 + Math.floor(Math.random() * 850)).unref?.();
+    return;
+  }
+
+  if (npc.stage === 'awaiting_answer') {
+    npc.stage = 'warning_pending';
+    const npcId = npc.id;
+    const warnings = [
+      'leave while you still can. never come back.',
+      "get out while you can. don't come back here.",
+      "leave. and whatever happens, don't let it know your name."
+    ];
+    setTimeout(() => {
+      if (!npcStillActive(player, npcId) || player.npc.stage !== 'warning_pending') return;
+      sendNpcChat(player, warnings[Math.floor(Math.random() * warnings.length)]);
+      player.npc.stage = 'departing';
+      chooseNpcWaypoint(player, player.npc, Date.now());
+      setTimeout(() => {
+        if (npcStillActive(player, npcId)) removeNpc(player, true);
+      }, 2400).unref?.();
+    }, 900 + Math.floor(Math.random() * 1000)).unref?.();
+  }
+}
+
+function rollNpcEncounters() {
+  const now = Date.now();
+  for (const player of clients.values()) {
+    if (!player.joined || player.npc || !player.ipHash || world.npcSeen[player.ipHash]) continue;
+    if (now < player.nextNpcRollAt) continue;
+    player.nextNpcRollAt = now + NPC_ROLL_INTERVAL_MS;
+    if (Math.random() < NPC_ROLL_CHANCE) spawnNpcEncounter(player);
+  }
+}
+setInterval(rollNpcEncounters, 5000).unref();
+
 function sendNearbyState() {
   const list = [...clients.values()].filter(player => player.joined);
+  const now = Date.now();
+  for (const player of list) updateNpcMotion(player, now, 0.25);
+
   for (const player of list) {
     const nearby = list
       .filter(other => other.id !== player.id && distance(player, other) < 46)
       .map(publicPlayer);
+    if (player.npc && distance(player, player.npc) < 46) nearby.push(publicPlayer(player.npc));
     send(player, { type: 'players', players: nearby });
   }
 }
@@ -294,6 +504,7 @@ function handleMessage(player, raw) {
     player.name = safeName(msg.name);
     player.avatar = ALLOWED_AVATARS.has(msg.avatar) ? msg.avatar : 'wanderer';
     player.joined = true;
+    player.nextNpcRollAt = Date.now() + NPC_ROLL_INTERVAL_MS;
     send(player, { type: 'joined', name: player.name, avatar: player.avatar });
     return;
   }
@@ -322,6 +533,7 @@ function handleMessage(player, raw) {
         send(other, { type: 'chat', id: player.id, name: player.name, text, system: false });
       }
     }
+    handleNpcConversation(player, text);
     return;
   }
 
@@ -365,6 +577,7 @@ function disconnect(id, endSocket = false) {
   if (!player) return;
   clients.delete(id);
   storeEcho(player);
+  player.npc = null;
   if (endSocket) {
     try { player.socket.end(); } catch { /* ignore */ }
   }
@@ -402,7 +615,10 @@ server.on('upgrade', (req, socket) => {
     avatar: 'wanderer',
     buffer: Buffer.alloc(0),
     trace: [],
-    lastTraceAt: 0
+    lastTraceAt: 0,
+    ipHash: clientIpHash(req, socket),
+    nextNpcRollAt: Number.POSITIVE_INFINITY,
+    npc: null
   };
   clients.set(id, player);
 
