@@ -1,0 +1,439 @@
+name: TEMP village main-scene patch
+
+on:
+  push:
+    branches:
+      - fix/village-main-scene
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.head_commit.message == 'Prepare village main-scene fix'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/village-main-scene
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Integrate village into the primary world scene
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          app = Path('public/app.js')
+          text = app.read_text()
+          old = "  buildWorld();\n\n  for (const note of pendingNotes) createNote(note);"
+          new = "  buildWorld();\n\n  window.EMPTYNET_WORLD_API = { scene, camera, terrainHeight, colliders, addFeed };\n  window.dispatchEvent(new CustomEvent('emptynet:world-ready', { detail: window.EMPTYNET_WORLD_API }));\n\n  for (const note of pendingNotes) createNote(note);"
+          if old not in text:
+              raise SystemExit('could not find buildWorld hook in app.js')
+          app.write_text(text.replace(old, new, 1))
+
+          index = Path('public/index.html')
+          html = index.read_text()
+          old_script = '<script type="module" src="settlement-v2.js"></script>'
+          new_script = '<script type="module" src="settlement-v3.js"></script>'
+          if old_script not in html:
+              raise SystemExit('settlement-v2 script tag missing')
+          index.write_text(html.replace(old_script, new_script, 1))
+
+          package = Path('package.json')
+          p = package.read_text()
+          if '"version": "0.8.8"' not in p:
+              raise SystemExit('unexpected package version')
+          p = p.replace('"version": "0.8.8"', '"version": "0.8.9"', 1)
+          p = p.replace('public/settlement-v2.js', 'public/settlement-v3.js')
+          package.write_text(p)
+          PY
+          cat > public/settlement-v3.js <<'EOF'
+          import * as THREE from 'three';
+
+          const WORLD_SEED = 28031997;
+          const SITE = { x: 1160, z: 1240 };
+          const ACTIVE_DISTANCE = 430;
+          const RESIDENT_CYCLE_SECONDS = 360;
+
+          let installed = false;
+
+          function install(api) {
+            if (installed || !api?.scene || !api?.camera || !api?.terrainHeight || !Array.isArray(api?.colliders)) return;
+            installed = true;
+
+            const { scene, camera, terrainHeight, colliders, addFeed } = api;
+            const village = new THREE.Group();
+            village.name = 'EMPTYNET_Distant_Village';
+            scene.add(village);
+
+            const mat = {
+              plaster: new THREE.MeshStandardMaterial({ color: 0xb7aa8e, roughness: 1 }),
+              plasterDark: new THREE.MeshStandardMaterial({ color: 0x8e836d, roughness: 1 }),
+              wood: new THREE.MeshStandardMaterial({ color: 0x49372b, roughness: 1 }),
+              roof: new THREE.MeshStandardMaterial({ color: 0x503d35, roughness: 0.96 }),
+              roofDark: new THREE.MeshStandardMaterial({ color: 0x332d2a, roughness: 1 }),
+              stone: new THREE.MeshStandardMaterial({ color: 0x77756b, roughness: 1 }),
+              soil: new THREE.MeshStandardMaterial({ color: 0x4e4432, roughness: 1 }),
+              crop: new THREE.MeshStandardMaterial({ color: 0x718249, roughness: 1 }),
+              clothA: new THREE.MeshStandardMaterial({ color: 0x5f6c63, roughness: 1 }),
+              clothB: new THREE.MeshStandardMaterial({ color: 0x75634f, roughness: 1 }),
+              clothC: new THREE.MeshStandardMaterial({ color: 0x4d5860, roughness: 1 }),
+              skin: new THREE.MeshStandardMaterial({ color: 0xb79d83, roughness: 1 })
+            };
+
+            const staticCollisionMeshes = [];
+            const residents = [];
+            let approachState = 0;
+            let lastOverheardAt = 0;
+            let lastFrame = performance.now();
+
+            function ground(x, z) {
+              return terrainHeight(x, z);
+            }
+
+            function addCollider(mesh, padding = 0.05) {
+              mesh.updateWorldMatrix(true, false);
+              const box = new THREE.Box3().setFromObject(mesh).expandByScalar(padding);
+              colliders.push(box);
+              staticCollisionMeshes.push(mesh);
+            }
+
+            function makeFoundation(width, depth, material = mat.stone, height = 1.5) {
+              const foundation = new THREE.Mesh(new THREE.BoxGeometry(width, height, depth), material);
+              foundation.position.y = -height * 0.5 + 0.18;
+              foundation.castShadow = true;
+              foundation.receiveShadow = true;
+              return foundation;
+            }
+
+            function addHouse(x, z, rotation, scale = 1, dark = false) {
+              const group = new THREE.Group();
+              group.position.set(x, ground(x, z), z);
+              group.rotation.y = rotation;
+              group.scale.setScalar(scale);
+              village.add(group);
+
+              const wallMat = dark ? mat.plasterDark : mat.plaster;
+              const foundation = makeFoundation(4.95, 4.35, mat.stone, 1.75);
+              group.add(foundation);
+
+              const body = new THREE.Mesh(new THREE.BoxGeometry(4.6, 2.45, 4.0), wallMat);
+              body.position.y = 1.25;
+              body.castShadow = true;
+              body.receiveShadow = true;
+              group.add(body);
+
+              const roofL = new THREE.Mesh(new THREE.BoxGeometry(2.7, 0.18, 4.5), dark ? mat.roofDark : mat.roof);
+              roofL.position.set(-1.05, 2.82, 0);
+              roofL.rotation.z = 0.55;
+              roofL.castShadow = true;
+              group.add(roofL);
+              const roofR = roofL.clone();
+              roofR.position.x = 1.05;
+              roofR.rotation.z = -0.55;
+              group.add(roofR);
+
+              const door = new THREE.Mesh(new THREE.BoxGeometry(0.82, 1.55, 0.08), mat.wood);
+              door.position.set(0, 0.82, 2.04);
+              group.add(door);
+
+              for (const bx of [-1.75, 1.75]) {
+                const beam = new THREE.Mesh(new THREE.BoxGeometry(0.13, 2.35, 0.13), mat.wood);
+                beam.position.set(bx, 1.2, 2.03);
+                group.add(beam);
+              }
+              for (const wx of [-1.25, 1.25]) {
+                const frame = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.55, 0.07), mat.wood);
+                frame.position.set(wx, 1.4, 2.06);
+                group.add(frame);
+              }
+
+              const chimney = new THREE.Mesh(new THREE.BoxGeometry(0.48, 1.25, 0.48), mat.stone);
+              chimney.position.set(1.25, 3.1, -0.65);
+              group.add(chimney);
+
+              group.updateWorldMatrix(true, true);
+              addCollider(body, 0.08);
+            }
+
+            const houseSpecs = [
+              [1137, 1223, 0.18, 1.0], [1152, 1217, -0.08, 0.92], [1170, 1219, 0.12, 1.05],
+              [1184, 1228, -0.22, 0.94], [1134, 1245, 1.38, 0.96], [1186, 1248, -1.35, 1.02],
+              [1142, 1262, 2.8, 0.90], [1163, 1265, 3.02, 1.0], [1181, 1263, -2.84, 0.88]
+            ];
+            houseSpecs.forEach((h, i) => addHouse(h[0], h[1], h[2], h[3], i === 6));
+
+            function addBarn() {
+              const x = SITE.x + 37;
+              const z = SITE.z - 28;
+              const group = new THREE.Group();
+              group.position.set(x, ground(x, z), z);
+              group.rotation.y = -0.35;
+              village.add(group);
+
+              const foundation = makeFoundation(8.3, 5.9, mat.stone, 2.0);
+              group.add(foundation);
+              const body = new THREE.Mesh(new THREE.BoxGeometry(7.8, 3.2, 5.4), mat.wood);
+              body.position.y = 1.65;
+              body.castShadow = true;
+              body.receiveShadow = true;
+              group.add(body);
+              const roofL = new THREE.Mesh(new THREE.BoxGeometry(4.3, 0.24, 6.1), mat.roofDark);
+              roofL.position.set(-1.62, 3.75, 0);
+              roofL.rotation.z = 0.62;
+              roofL.castShadow = true;
+              group.add(roofL);
+              const roofR = roofL.clone();
+              roofR.position.x = 1.62;
+              roofR.rotation.z = -0.62;
+              group.add(roofR);
+              const door = new THREE.Mesh(new THREE.BoxGeometry(2.7, 2.55, 0.12), mat.roof);
+              door.position.set(0, 1.35, 2.76);
+              group.add(door);
+
+              group.updateWorldMatrix(true, true);
+              addCollider(body, 0.09);
+            }
+            addBarn();
+
+            function addWell() {
+              const x = SITE.x;
+              const z = SITE.z + 1;
+              const group = new THREE.Group();
+              group.position.set(x, ground(x, z), z);
+              village.add(group);
+
+              const well = new THREE.Mesh(new THREE.CylinderGeometry(1.05, 1.15, 0.72, 12, 1, true), mat.stone);
+              well.position.y = 0.38;
+              well.castShadow = true;
+              group.add(well);
+              for (const px of [-0.9, 0.9]) {
+                const post = new THREE.Mesh(new THREE.BoxGeometry(0.12, 2.15, 0.12), mat.wood);
+                post.position.set(px, 1.2, 0);
+                group.add(post);
+              }
+              const roof = new THREE.Mesh(new THREE.BoxGeometry(2.7, 0.16, 2.0), mat.roof);
+              roof.position.y = 2.35;
+              roof.castShadow = true;
+              group.add(roof);
+
+              group.updateWorldMatrix(true, true);
+              addCollider(well, 0.18);
+            }
+            addWell();
+
+            function addFields() {
+              for (let row = 0; row < 7; row++) {
+                const x = SITE.x - 42;
+                const z = SITE.z - 18 + row * 2.0;
+                const soil = new THREE.Mesh(new THREE.BoxGeometry(13, 0.12, 0.8), mat.soil);
+                soil.position.set(x, ground(x, z) + 0.02, z);
+                soil.rotation.y = 0.1;
+                soil.receiveShadow = true;
+                village.add(soil);
+                for (let i = 0; i < 18; i++) {
+                  const cx = x - 5.8 + i * 0.68;
+                  const crop = new THREE.Mesh(new THREE.ConeGeometry(0.10, 0.56 + ((i + row) % 3) * 0.08, 5), mat.crop);
+                  crop.position.set(cx, ground(cx, z) + 0.28, z);
+                  crop.castShadow = true;
+                  village.add(crop);
+                }
+              }
+            }
+            addFields();
+
+            function addFenceSegment(x, z, length, rotation = 0) {
+              const group = new THREE.Group();
+              group.position.set(x, ground(x, z), z);
+              group.rotation.y = rotation;
+              village.add(group);
+              const collisionMeshes = [];
+              for (const px of [-length / 2, 0, length / 2]) {
+                const post = new THREE.Mesh(new THREE.BoxGeometry(0.13, 1.15, 0.13), mat.wood);
+                post.position.set(px, 0.56, 0);
+                post.castShadow = true;
+                group.add(post);
+                collisionMeshes.push(post);
+              }
+              for (const y of [0.35, 0.78]) {
+                const rail = new THREE.Mesh(new THREE.BoxGeometry(length, 0.10, 0.10), mat.wood);
+                rail.position.y = y;
+                rail.castShadow = true;
+                group.add(rail);
+                collisionMeshes.push(rail);
+              }
+              group.updateWorldMatrix(true, true);
+              collisionMeshes.forEach(mesh => addCollider(mesh, 0.03));
+            }
+            for (let i = 0; i < 4; i++) addFenceSegment(SITE.x - 42, SITE.z - 27 + i * 11, 15, 0.1);
+
+            function addBellPost() {
+              const x = SITE.x + 7;
+              const z = SITE.z + 5;
+              const group = new THREE.Group();
+              group.position.set(x, ground(x, z), z);
+              village.add(group);
+              const posts = [];
+              for (const px of [-0.75, 0.75]) {
+                const post = new THREE.Mesh(new THREE.BoxGeometry(0.16, 3.3, 0.16), mat.wood);
+                post.position.set(px, 1.65, 0);
+                post.castShadow = true;
+                group.add(post);
+                posts.push(post);
+              }
+              const beam = new THREE.Mesh(new THREE.BoxGeometry(1.75, 0.15, 0.15), mat.wood);
+              beam.position.y = 3.2;
+              group.add(beam);
+              const bell = new THREE.Mesh(new THREE.ConeGeometry(0.36, 0.65, 12, 1, true), mat.stone);
+              bell.position.y = 2.58;
+              bell.rotation.x = Math.PI;
+              group.add(bell);
+              group.updateWorldMatrix(true, true);
+              posts.forEach(mesh => addCollider(mesh, 0.05));
+            }
+            addBellPost();
+
+            const residentSpecs = [
+              { name: 'Mara', cloth: mat.clothB, route: [[-23,-17],[-23,-17],[-40,-13],[-40,-13],[0,1],[7,5],[-23,-17]] },
+              { name: 'Toma', cloth: mat.clothA, route: [[-8,-23],[-8,-23],[37,-28],[37,-28],[7,5],[0,1],[-8,-23]] },
+              { name: 'Iven', cloth: mat.clothC, route: [[10,-21],[10,-21],[24,-12],[24,-12],[0,1],[-18,22],[10,-21]] },
+              { name: 'Sela', cloth: mat.clothA, route: [[24,-12],[24,-12],[0,1],[-42,-7],[-42,-7],[7,5],[24,-12]] },
+              { name: 'Orin', cloth: mat.clothB, route: [[-26,5],[-26,5],[-42,-18],[-42,-18],[0,1],[-18,22],[-26,5]] },
+              { name: 'Nera', cloth: mat.clothC, route: [[26,8],[26,8],[37,-28],[7,5],[7,5],[3,25],[26,8]] },
+              { name: 'Pell', cloth: mat.clothA, route: [[-18,22],[-18,22],[3,25],[3,25],[0,1],[-26,5],[-18,22]] },
+              { name: 'Eda', cloth: mat.clothB, route: [[3,25],[3,25],[21,23],[0,1],[0,1],[-8,-23],[3,25]] },
+              { name: 'Bram', cloth: mat.clothC, route: [[21,23],[21,23],[37,-28],[37,-28],[26,8],[7,5],[21,23]] },
+              { name: 'Lio', cloth: mat.clothA, route: [[10,-21],[10,-21],[7,5],[0,1],[-18,22],[-18,22],[10,-21]] }
+            ];
+
+            function makeResident(spec, index) {
+              const group = new THREE.Group();
+              village.add(group);
+              const torso = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.72, 0.26), spec.cloth);
+              torso.position.y = 1.02;
+              torso.castShadow = true;
+              group.add(torso);
+              const head = new THREE.Mesh(new THREE.SphereGeometry(0.22, 8, 6), mat.skin);
+              head.position.y = 1.62;
+              head.castShadow = true;
+              group.add(head);
+
+              function limbPivot(x, y, length, material) {
+                const pivot = new THREE.Group();
+                pivot.position.set(x, y, 0);
+                const limb = new THREE.Mesh(new THREE.BoxGeometry(0.11, length, 0.11), material);
+                limb.position.y = -length * 0.5;
+                limb.castShadow = true;
+                pivot.add(limb);
+                group.add(pivot);
+                return pivot;
+              }
+
+              return {
+                ...spec,
+                index,
+                group,
+                leftLeg: limbPivot(-0.12, 0.58, 0.62, mat.wood),
+                rightLeg: limbPivot(0.12, 0.58, 0.62, mat.wood),
+                leftArm: limbPivot(-0.31, 1.27, 0.58, spec.cloth),
+                rightArm: limbPivot(0.31, 1.27, 0.58, spec.cloth),
+                lastX: SITE.x + spec.route[0][0],
+                lastZ: SITE.z + spec.route[0][1]
+              };
+            }
+            residents.push(...residentSpecs.map(makeResident));
+
+            const overheard = [
+              ['Mara', 'The south row needs water before noon.'],
+              ['Toma', 'I will mend the barn latch after the grain is in.'],
+              ['Sela', 'Nera left bread by your door.'],
+              ['Orin', 'The well tastes of iron again.'],
+              ['Pell', 'My father said the old road used to run farther east.'],
+              ['Eda', 'Bring the washing in if the wind turns cold.'],
+              ['Bram', 'The bell skipped an hour yesterday.'],
+              ['Nera', 'Do not leave the hens loose near the north field.'],
+              ['Iven', 'I saw lights past the ridge. Probably travellers.'],
+              ['Lio', 'Mara says we are short on salt.']
+            ];
+
+            function updateResidents(nowSeconds, dt) {
+              for (const resident of residents) {
+                const route = resident.route;
+                const offset = (resident.index * 47 + WORLD_SEED % 131) % RESIDENT_CYCLE_SECONDS;
+                const phase = ((nowSeconds + offset) % RESIDENT_CYCLE_SECONDS) / RESIDENT_CYCLE_SECONDS * route.length;
+                const segment = Math.floor(phase) % route.length;
+                const next = (segment + 1) % route.length;
+                let t = phase - Math.floor(phase);
+                t = t * t * (3 - 2 * t);
+                const [ax, az] = route[segment];
+                const [bx, bz] = route[next];
+                const x = SITE.x + THREE.MathUtils.lerp(ax, bx, t);
+                const z = SITE.z + THREE.MathUtils.lerp(az, bz, t);
+                const y = ground(x, z);
+                const dx = x - resident.lastX;
+                const dz = z - resident.lastZ;
+                const speed = Math.hypot(dx, dz) / Math.max(dt, 0.001);
+
+                resident.group.position.set(x, y, z);
+                if (Math.hypot(dx, dz) > 0.001) resident.group.rotation.y = Math.atan2(dx, dz);
+                const motion = THREE.MathUtils.clamp(speed / 1.4, 0, 1);
+                const swing = Math.sin(nowSeconds * 7.2 + resident.index) * 0.48 * motion;
+                resident.leftLeg.rotation.x = swing;
+                resident.rightLeg.rotation.x = -swing;
+                resident.leftArm.rotation.x = -swing * 0.7;
+                resident.rightArm.rotation.x = swing * 0.7;
+                resident.lastX = x;
+                resident.lastZ = z;
+              }
+            }
+
+            function updateApproach(distance, now) {
+              if (distance < 260 && approachState < 1) {
+                approachState = 1;
+                addFeed?.('You smell woodsmoke somewhere beyond the field.', true, 12000);
+              }
+              if (distance < 110 && approachState < 2) {
+                approachState = 2;
+                addFeed?.('Voices carry between the houses. None of them call to you.', true, 12000);
+              }
+              if (distance > 330) approachState = 0;
+
+              if (distance < 48 && now - lastOverheardAt > 24000) {
+                const bucket = Math.floor(Date.now() / 24000);
+                const index = Math.abs((bucket + WORLD_SEED) % overheard.length);
+                const [speaker, text] = overheard[index];
+                addFeed?.(`overheard // ${speaker}: “${text}”`, true, 16000);
+                lastOverheardAt = now;
+              }
+            }
+
+            function frame(now) {
+              requestAnimationFrame(frame);
+              const dt = Math.min((now - lastFrame) / 1000, 0.05);
+              lastFrame = now;
+              const distance = Math.hypot(camera.position.x - SITE.x, camera.position.z - SITE.z);
+              village.visible = distance < ACTIVE_DISTANCE;
+              if (!village.visible) return;
+              updateResidents(Date.now() / 1000, dt);
+              updateApproach(distance, now);
+            }
+
+            requestAnimationFrame(frame);
+          }
+
+          if (window.EMPTYNET_WORLD_API) install(window.EMPTYNET_WORLD_API);
+          window.addEventListener('emptynet:world-ready', event => install(event.detail), { once: true });
+          EOF
+          npm install --no-audit --no-fund
+          npm run prepare:assets
+          npm run check
+      - name: Commit patch and remove temporary workflow
+        run: |
+          git config user.name "hc6q"
+          git config user.email "heitormilanesi214168@sou.urcamp.edu.br"
+          git rm .github/workflows/temp-village-main-scene.yml
+          git add public/app.js public/index.html public/settlement-v3.js package.json package-lock.json
+          git commit -m "Render the village inside the primary world scene"
+          git push origin HEAD:fix/village-main-scene
