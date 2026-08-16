@@ -238,7 +238,7 @@ async function init3D() {
   document.addEventListener('keyup', event => { keys[event.code] = false; });
   window.addEventListener('blur', () => { keys = Object.create(null); });
 
-  nextStalkerAt = performance.now() + 16000 + Math.random() * 9000;
+  nextStalkerAt = performance.now() + 90000 + Math.random() * 150000;
   nextSignalGlitchAt = performance.now() + 27000 + Math.random() * 15000;
   nextGhostAt = performance.now() + 42000 + Math.random() * 25000;
 
@@ -1913,7 +1913,7 @@ function updateMovement(dt, now) {
       .addScaledVector(moveForwardVec, forwardInput)
       .addScaledVector(moveRightVec, rightInput);
     if (moveWish.lengthSq() > 1) moveWish.normalize();
-    moveWish.multiplyScalar(5.3 * dt);
+    moveWish.multiplyScalar((selectedAvatar === 'runner' ? 7.2 : 5.3) * dt);
 
     const tryX = camera.position.clone();
     tryX.x += moveWish.x;
@@ -2027,7 +2027,7 @@ function updateStalker(now, dt) {
     const fadeIn = smoothstep(0, 1800, age);
     const fogFade = smoothstep(100, 25, dist);
     stalker.material.opacity = stalker.maxOpacity * fadeIn * THREE.MathUtils.clamp(fogFade, 0.32, 1);
-    if ((dot > 0.975 && age > 900) || dist < 18 || age > 11500) beginStalkerFade(now);
+    if ((dot > 0.982 && age > 700) || dist < 16 || age > 6200) beginStalkerFade(now);
   } else {
     const t = (now - stalker.fadeStart) / 560;
     stalker.material.opacity = stalker.maxOpacity * Math.max(0, 1 - t);
@@ -2036,7 +2036,7 @@ function updateStalker(now, dt) {
       stalker.fading = false;
       stalker.group.visible = false;
       stalker.material.opacity = 0;
-      nextStalkerAt = now + 21000 + Math.random() * 33000;
+      nextStalkerAt = now + 150000 + Math.random() * 270000;
     }
   }
 }
