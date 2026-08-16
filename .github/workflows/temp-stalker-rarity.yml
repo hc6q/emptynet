@@ -1,0 +1,60 @@
+name: TEMP stalker rarity patch
+
+on:
+  push:
+    branches:
+      - fix/stalker-rarity
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.head_commit.message == 'Prepare stalker rarity fix'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/stalker-rarity
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Make stalker rare and brief
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          app = Path('public/app.js')
+          text = app.read_text()
+          replacements = {
+              'nextStalkerAt = performance.now() + 16000 + Math.random() * 9000;': 'nextStalkerAt = performance.now() + 120000 + Math.random() * 180000;',
+              'nextStalkerAt = now + 7000;': 'nextStalkerAt = now + 30000 + Math.random() * 30000;',
+              'if ((dot > 0.975 && age > 900) || dist < 18 || age > 11500) beginStalkerFade(now);': 'if ((dot > 0.975 && age > 900) || dist < 18 || age > 7500) beginStalkerFade(now);',
+              'nextStalkerAt = now + 21000 + Math.random() * 33000;': 'nextStalkerAt = now + 300000 + Math.random() * 480000;'
+          }
+          for old, new in replacements.items():
+              if old not in text:
+                  raise SystemExit(f'missing expected app.js text: {old}')
+              text = text.replace(old, new, 1)
+          app.write_text(text)
+
+          package = Path('package.json')
+          package_text = package.read_text()
+          old_version = '"version": "0.8.8"'
+          new_version = '"version": "0.8.9"'
+          if old_version not in package_text:
+              raise SystemExit('unexpected package version')
+          package.write_text(package_text.replace(old_version, new_version, 1))
+          PY
+          npm install --no-audit --no-fund
+          npm run prepare:assets
+          npm run check
+      - name: Commit patch and remove temporary workflow
+        run: |
+          git config user.name "hc6q"
+          git config user.email "heitormilanesi214168@sou.urcamp.edu.br"
+          git rm .github/workflows/temp-stalker-rarity.yml
+          git add public/app.js package.json package-lock.json
+          git commit -m "Make the stalker a rare encounter"
+          git push origin HEAD:fix/stalker-rarity
