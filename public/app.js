@@ -226,6 +226,9 @@ async function init3D() {
   camera.position.set(0, spawnHeight + EYE_HEIGHT, 5);
   buildWorld();
 
+  window.EMPTYNET_WORLD_API = { scene, camera, terrainHeight, colliders, addFeed };
+  window.dispatchEvent(new CustomEvent('emptynet:world-ready', { detail: window.EMPTYNET_WORLD_API }));
+
   for (const note of pendingNotes) createNote(note);
   pendingNotes = [];
   prepareGhostPlayback();
