@@ -1,16 +1,21 @@
-# EMPTYNET
+# EMPTYNET // Field Node 06
 
-A persistent multiplayer 3D world built with Three.js, Node.js and WebSockets.
+Persistent multiplayer field built with Three.js and a dependency-free Node.js WebSocket server.
 
-This repository is the canonical source for EMPTYNET. The world is seeded, procedurally streamed, persistent, and intentionally sparse and mysterious.
+Seed: `28031997`
 
 ## Run locally
 
+Requires Node.js 20+.
+
 ```bash
-node server.js
+npm run prepare:assets
+npm start
 ```
 
 Open `http://localhost:8080`.
+
+The asset preparation step downloads the CC0 Poly Haven textures used by the world and generates the tiny procedural noise/water-normal textures. Once downloaded, the files stay in `public/assets/`.
 
 ## Controls
 
@@ -19,14 +24,32 @@ Open `http://localhost:8080`.
 - E: interact
 - T: local chat
 - N: leave a persistent note
-- M: toggle audio
+- M: mute / unmute ambience
+- Esc: release mouse
 
-## World
+## v0.8.0
 
-Seed: `28031997`
+- Deterministic seed-based world
+- Streaming 9×9 chunk window
+- Three terrain LOD levels
+- Procedural trails, cabins, shrines, ponds and watchtowers
+- Carved water basins and terrain-following paths
+- CRT terminal stations
+- Four selectable player shells
+- Multiplayer proximity chat
+- Persistent notes, terminal entries and movement echoes
+- Observer/stalker system
 
-The server keeps persistent notes, terminal entries and player echoes in `world-data.json` at runtime.
+## Persistence
 
-## Deployment
+`world-data.json` stores notes, terminal entries and recent movement echoes. Set `DATA_DIR` to place it on a persistent disk in production.
 
-The app requires a Node.js runtime with WebSocket support and persistent storage if you want notes, terminal history and echoes to survive restarts.
+## Automatic deployment
+
+This repository is prepared for continuous deployment. `main` is the production branch. The daily EMPTYNET automation is expected to test changes before committing to `main`; a connected hosting provider can then deploy every successful commit automatically.
+
+`render.yaml` is included for a Render Blueprint. A persistent disk is configured at `/var/data`; the server reads `DATA_DIR=/var/data`.
+
+## Assets
+
+See `ASSET_CREDITS.md`. Visual source assets are CC0 from Poly Haven. `scripts/fetch-assets.mjs` retrieves them from Poly Haven's public API during setup.
