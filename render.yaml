@@ -4,7 +4,7 @@ services:
     runtime: node
     plan: free
     autoDeployTrigger: checksPass
-    buildCommand: npm run prepare:assets && npm run check
+    buildCommand: npm install && npm run prepare:assets && npm run check
     startCommand: npm start
     healthCheckPath: /healthz
     envVars:
