@@ -235,7 +235,7 @@ async function init3D() {
   document.addEventListener('keyup', event => { keys[event.code] = false; });
   window.addEventListener('blur', () => { keys = Object.create(null); });
 
-  nextStalkerAt = performance.now() + 16000 + Math.random() * 9000;
+  nextStalkerAt = performance.now() + 120000 + Math.random() * 180000;
   nextSignalGlitchAt = performance.now() + 27000 + Math.random() * 15000;
   nextGhostAt = performance.now() + 42000 + Math.random() * 25000;
 
@@ -1982,7 +1982,7 @@ function chooseStalkerAnchor() {
 function spawnStalker(now) {
   const anchor = chooseStalkerAnchor();
   if (!anchor) {
-    nextStalkerAt = now + 7000;
+    nextStalkerAt = now + 30000 + Math.random() * 30000;
     return;
   }
   stalker.anchor = anchor;
@@ -2024,7 +2024,7 @@ function updateStalker(now, dt) {
     const fadeIn = smoothstep(0, 1800, age);
     const fogFade = smoothstep(100, 25, dist);
     stalker.material.opacity = stalker.maxOpacity * fadeIn * THREE.MathUtils.clamp(fogFade, 0.32, 1);
-    if ((dot > 0.975 && age > 900) || dist < 18 || age > 11500) beginStalkerFade(now);
+    if ((dot > 0.975 && age > 900) || dist < 18 || age > 7500) beginStalkerFade(now);
   } else {
     const t = (now - stalker.fadeStart) / 560;
     stalker.material.opacity = stalker.maxOpacity * Math.max(0, 1 - t);
@@ -2033,7 +2033,7 @@ function updateStalker(now, dt) {
       stalker.fading = false;
       stalker.group.visible = false;
       stalker.material.opacity = 0;
-      nextStalkerAt = now + 21000 + Math.random() * 33000;
+      nextStalkerAt = now + 300000 + Math.random() * 480000;
     }
   }
 }
