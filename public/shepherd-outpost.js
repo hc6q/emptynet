@@ -264,6 +264,9 @@ function install(api) {
   buildPen();
   buildHayStacks();
   const shepherd = buildShepherd();
+  const [shepherdStartX, shepherdStartZ] = shepherd.route[0];
+  shepherd.group.position.set(shepherdStartX, ground(shepherdStartX, shepherdStartZ), shepherdStartZ);
+  shepherd.routeIndex = 1;
   const sheep = Array.from({ length: 5 }, (_, i) => buildSheep(i));
 
   root.traverse(obj => {
