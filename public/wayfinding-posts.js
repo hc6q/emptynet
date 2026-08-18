@@ -1,5 +1,10 @@
 import * as THREE from 'three';
 
+const BOARD_DEPTH = 0.16;
+const BOARD_BEVEL_THICKNESS = 0.035;
+const LABEL_GAP = 0.018;
+const LABEL_FACE_Z = BOARD_DEPTH * 0.5 + BOARD_BEVEL_THICKNESS + LABEL_GAP;
+
 const POSTS = [
   {
     x: 1.2,
@@ -61,10 +66,18 @@ function install(api) {
     const ctx = canvas.getContext('2d');
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.fillStyle = 'rgba(236, 222, 184, 0.96)';
-    ctx.font = '700 48px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(text, 256, 64);
+
+    const maxWidth = 430;
+    let fontSize = 48;
+    do {
+      ctx.font = `700 ${fontSize}px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace`;
+      if (ctx.measureText(text).width <= maxWidth) break;
+      fontSize -= 2;
+    } while (fontSize > 28);
+
+    ctx.fillText(text, 256, 64, maxWidth);
     const texture = new THREE.CanvasTexture(canvas);
     texture.colorSpace = THREE.SRGBColorSpace;
     texture.minFilter = THREE.LinearFilter;
@@ -72,7 +85,7 @@ function install(api) {
     return texture;
   }
 
-  function makeArrowGeometry(length = 3.25, height = 0.72, depth = 0.16) {
+  function makeArrowGeometry(length = 3.25, height = 0.72, depth = BOARD_DEPTH) {
     const halfH = height * 0.5;
     const bodyEnd = length * 0.70;
     const shape = new THREE.Shape();
@@ -87,7 +100,7 @@ function install(api) {
     const geometry = new THREE.ExtrudeGeometry(shape, {
       depth,
       bevelEnabled: true,
-      bevelThickness: 0.035,
+      bevelThickness: BOARD_BEVEL_THICKNESS,
       bevelSize: 0.035,
       bevelSegments: 1,
       curveSegments: 1
@@ -121,22 +134,24 @@ function install(api) {
     const labelMaterial = new THREE.MeshBasicMaterial({
       map: labelTexture,
       transparent: true,
+      depthTest: true,
       depthWrite: false,
-      side: THREE.DoubleSide,
+      side: THREE.FrontSide,
       toneMapped: false
     });
     const label = new THREE.Mesh(new THREE.PlaneGeometry(2.25, 0.48), labelMaterial);
-    label.position.set(-0.25, 0, 0.105);
+    label.position.set(-0.25, 0, LABEL_FACE_Z);
     board.add(label);
 
     const rearLabel = label.clone();
-    rearLabel.position.z = -0.105;
+    rearLabel.position.z = -LABEL_FACE_Z;
     rearLabel.rotation.y = Math.PI;
     board.add(rearLabel);
 
+    const nailFaceZ = LABEL_FACE_Z + 0.004;
     const nailA = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.06, 8), iron);
     nailA.rotation.x = Math.PI / 2;
-    nailA.position.set(-1.03, 0.14, 0.105);
+    nailA.position.set(-1.03, 0.14, nailFaceZ);
     board.add(nailA);
     const nailB = nailA.clone();
     nailB.position.y = -0.14;
