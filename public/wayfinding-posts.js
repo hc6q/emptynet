@@ -1,7 +1,14 @@
 import * as THREE from 'three';
 
+const BOARD_LENGTH = 3.25;
+const BOARD_HEIGHT = 0.72;
 const BOARD_DEPTH = 0.16;
 const BOARD_BEVEL_THICKNESS = 0.035;
+const BOARD_WING_FACTOR = 0.60;
+const BOARD_FORWARD_OFFSET = 1.55;
+const BOARD_STACK_TOP = 2.60;
+const BOARD_STACK_SPACING = 0.94;
+const LABEL_WIDTH = 2.05;
 const LABEL_GAP = 0.018;
 const LABEL_FACE_Z = BOARD_DEPTH * 0.5 + BOARD_BEVEL_THICKNESS + LABEL_GAP;
 
@@ -85,15 +92,16 @@ function install(api) {
     return texture;
   }
 
-  function makeArrowGeometry(length = 3.25, height = 0.72, depth = BOARD_DEPTH) {
+  function makeArrowGeometry(length = BOARD_LENGTH, height = BOARD_HEIGHT, depth = BOARD_DEPTH) {
     const halfH = height * 0.5;
     const bodyEnd = length * 0.70;
+    const wingH = height * BOARD_WING_FACTOR;
     const shape = new THREE.Shape();
     shape.moveTo(-length * 0.5, -halfH);
     shape.lineTo(bodyEnd - length * 0.5, -halfH);
-    shape.lineTo(bodyEnd - length * 0.5, -height * 0.82);
+    shape.lineTo(bodyEnd - length * 0.5, -wingH);
     shape.lineTo(length * 0.5, 0);
-    shape.lineTo(bodyEnd - length * 0.5, height * 0.82);
+    shape.lineTo(bodyEnd - length * 0.5, wingH);
     shape.lineTo(bodyEnd - length * 0.5, halfH);
     shape.lineTo(-length * 0.5, halfH);
     shape.closePath();
@@ -123,11 +131,14 @@ function install(api) {
     const dz = boardSpec.target[1] - postSpec.z;
     const angle = Math.atan2(-dz, dx);
     const board = new THREE.Group();
-    board.position.y = 2.35 - index * 0.72;
+    board.position.y = BOARD_STACK_TOP - index * BOARD_STACK_SPACING;
     board.rotation.y = angle;
     post.add(board);
 
+    // Keep the pole at the tail of the arrow rather than through its center.
+    // This leaves the destination text fully on the outward-facing plank.
     const plank = new THREE.Mesh(makeArrowGeometry(), wood);
+    plank.position.x = BOARD_FORWARD_OFFSET;
     board.add(plank);
 
     const labelTexture = makeTextTexture(boardSpec.label);
@@ -139,8 +150,8 @@ function install(api) {
       side: THREE.FrontSide,
       toneMapped: false
     });
-    const label = new THREE.Mesh(new THREE.PlaneGeometry(2.25, 0.48), labelMaterial);
-    label.position.set(-0.25, 0, LABEL_FACE_Z);
+    const label = new THREE.Mesh(new THREE.PlaneGeometry(LABEL_WIDTH, 0.48), labelMaterial);
+    label.position.set(BOARD_FORWARD_OFFSET - 0.23, 0, LABEL_FACE_Z);
     board.add(label);
 
     const rearLabel = label.clone();
@@ -151,7 +162,7 @@ function install(api) {
     const nailFaceZ = LABEL_FACE_Z + 0.004;
     const nailA = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.06, 8), iron);
     nailA.rotation.x = Math.PI / 2;
-    nailA.position.set(-1.03, 0.14, nailFaceZ);
+    nailA.position.set(BOARD_FORWARD_OFFSET - 1.03, 0.14, nailFaceZ);
     board.add(nailA);
     const nailB = nailA.clone();
     nailB.position.y = -0.14;
