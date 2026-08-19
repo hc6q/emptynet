@@ -10,7 +10,7 @@
     "prepare:assets": "node scripts/fetch-assets.mjs",
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "check": "node --check server.js && node --check public/app.js && node --check public/world-life.js && node --check public/node-7-v3.js && node --check public/settlement-v3.js && node --check public/shepherd-outpost.js && node --check public/wayfinding-posts.js"
+    "check": "node --check server.js && node --check public/app.js && node --check public/world-life.js && node --check public/node-7-v3.js && node --check public/settlement-v3.js && node --check public/shepherd-outpost.js && node --check public/wayfinding-posts.js && node --check public/blackpine-wayhouse.js"
   },
   "dependencies": {
     "pg": "^8.16.3"

@@ -46,6 +46,7 @@ const POSTS = [
     z: -609.23,
     boards: [
       { label: 'OLD WATCH', target: [625, -430] },
+      { label: 'BLACKPINE', target: [748, -566] },
       { label: 'NORTH ROAD', target: [725, 22] }
     ]
   }
