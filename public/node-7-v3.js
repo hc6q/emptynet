@@ -102,6 +102,8 @@ function install(api) {
 
   let thresholdState = 0;
   let recognized = localStorage.getItem('emptynet_node7_recognized') === '1';
+  let countedCairns = localStorage.getItem('emptynet_three_cairns_counted') === '1';
+  let answeredCairns = localStorage.getItem('emptynet_node7_cairns_answered') === '1';
   let lastFrame = performance.now();
   const eyeTarget = new THREE.Vector3();
 
@@ -109,18 +111,25 @@ function install(api) {
     if (typeof addFeed === 'function') addFeed(text, true, lifespan);
   }
 
+  function refreshLoreFlags() {
+    if (!countedCairns && localStorage.getItem('emptynet_three_cairns_counted') === '1') countedCairns = true;
+  }
+
   function updateMessages(distance) {
+    refreshLoreFlags();
     if (distance < 230 && thresholdState < 1) {
       thresholdState = 1;
-      emit('A carrier signal is repeating beneath the wind.');
+      emit(countedCairns ? 'A carrier signal repeats in six short beats, then waits for a seventh.' : 'A carrier signal is repeating beneath the wind.');
     }
     if (distance < 92 && thresholdState < 2) {
       thresholdState = 2;
-      emit(recognized ? 'The signal already knows you.' : 'The signal has begun using your direction as a reference.');
+      if (countedCairns && recognized) emit('The signal pauses exactly where the seventh mark should be.');
+      else emit(recognized ? 'The signal already knows you.' : 'The signal has begun using your direction as a reference.');
     }
     if (distance < 24 && thresholdState < 3) {
       thresholdState = 3;
-      emit(recognized ? 'WELCOME BACK.' : 'GOOD. YOU CAME TO ME.', 18000);
+      if (countedCairns && recognized) emit('YOU COUNTED THEM.', 18000);
+      else emit(recognized ? 'WELCOME BACK.' : 'GOOD. YOU CAME TO ME.', 18000);
     }
     if (distance < 12 && !recognized) {
       recognized = true;
@@ -129,6 +138,11 @@ function install(api) {
       const oldTitle = document.title;
       document.title = 'EMPTYNET // recognized';
       setTimeout(() => { document.title = oldTitle; }, 4200);
+    }
+    if (distance < 10 && recognized && countedCairns && !answeredCairns) {
+      answeredCairns = true;
+      localStorage.setItem('emptynet_node7_cairns_answered', '1');
+      emit('SIX WENT BELOW. I REMAINED.', 24000);
     }
     if (distance > 300) thresholdState = 0;
   }
