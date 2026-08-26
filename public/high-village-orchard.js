@@ -96,14 +96,25 @@ function install(api) {
   ];
   trees.forEach(t => addTree(...t));
 
-  // Dry-laid roadside wall with a gap toward the village approach.
-  const wallSegments = [[-17, -12, 15], [8, -12, 10], [-17, 13, 34]];
-  for (const [x, z, len] of wallSegments) {
-    const wall = box(len, 0.78, 0.72, mat.stoneDark);
-    wall.position.set(x + len * 0.5, localY(x + len * 0.5, z) + 0.28, z);
-    root.add(wall);
-    addCollider(wall, 0.03);
+  // Dry-laid wall stones follow the actual terrain one short block at a time. This
+  // avoids a long rigid wall floating over or cutting through sloped ground.
+  function addWallRun(startX, z, length) {
+    const blockLength = 2.0;
+    const count = Math.ceil(length / blockLength);
+    for (let i = 0; i < count; i++) {
+      const remaining = length - i * blockLength;
+      const thisLength = Math.min(blockLength, remaining);
+      const x = startX + i * blockLength + thisLength * 0.5;
+      const wall = box(thisLength + 0.06, 0.72 + (i % 3) * 0.04, 0.72, i % 2 ? mat.stone : mat.stoneDark);
+      wall.position.set(x, localY(x, z) + 0.25, z);
+      wall.rotation.y = ((i % 3) - 1) * 0.018;
+      root.add(wall);
+      addCollider(wall, 0.025);
+    }
   }
+  addWallRun(-17, -12, 15);
+  addWallRun(8, -12, 10);
+  addWallRun(-17, 13, 34);
 
   // Press yard at the road-facing edge.
   const pressBase = box(4.4, 0.55, 3.8, mat.stone);
