@@ -31,7 +31,6 @@ function install(api) {
     timber: new THREE.MeshStandardMaterial({ color: 0x4d3828, roughness: 0.98 }),
     timberDark: new THREE.MeshStandardMaterial({ color: 0x30251d, roughness: 1 }),
     roof: new THREE.MeshStandardMaterial({ color: 0x41443d, roughness: 1 }),
-    iron: new THREE.MeshStandardMaterial({ color: 0x262a27, roughness: 0.80, metalness: 0.18 }),
     copper: new THREE.MeshStandardMaterial({ color: 0x675044, roughness: 0.74, metalness: 0.20 }),
     indigo: new THREE.MeshStandardMaterial({ color: 0x334957, roughness: 0.48 }),
     madder: new THREE.MeshStandardMaterial({ color: 0x765049, roughness: 0.52 }),
@@ -157,8 +156,9 @@ function install(api) {
         puff.receiveShadow = false;
         puff.position.set(x, y + 1.15 + p * 0.32, z);
         puff.userData.phase = rand() * Math.PI * 2;
+        puff.userData.baseX = x;
         puff.userData.baseY = puff.position.y;
-        puff.userData.vatIndex = i;
+        puff.userData.baseZ = z;
         root.add(puff);
         steamPuffs.push(puff);
       }
@@ -337,13 +337,12 @@ function install(api) {
 
   function updateSteam(now) {
     const t = now * 0.001;
-    for (let i = 0; i < steamPuffs.length; i++) {
-      const puff = steamPuffs[i];
+    for (const puff of steamPuffs) {
       const phase = puff.userData.phase;
       const cycle = (t * 0.12 + phase / (Math.PI * 2)) % 1;
+      puff.position.x = puff.userData.baseX + Math.sin(t * 0.25 + phase) * 0.10;
       puff.position.y = puff.userData.baseY + cycle * 1.05;
-      puff.position.x += Math.sin(t * 0.25 + phase) * 0.00045;
-      puff.position.z += Math.cos(t * 0.21 + phase) * 0.00035;
+      puff.position.z = puff.userData.baseZ + Math.cos(t * 0.21 + phase) * 0.08;
       const scale = 0.72 + cycle * 0.85;
       puff.scale.setScalar(scale);
       puff.material.opacity = 0.18 * (1 - cycle);
