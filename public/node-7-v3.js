@@ -108,6 +108,8 @@ function install(api) {
   let answeredWell = localStorage.getItem('emptynet_node7_well_answered') === '1';
   let foundKeeperTally = localStorage.getItem('emptynet_keeper_tally_found') === '1';
   let answeredKeeperTally = localStorage.getItem('emptynet_node7_keeper_answered') === '1';
+  let sawLoweringLights = localStorage.getItem('emptynet_lowering_lights_seen') === '1';
+  let answeredLoweringLights = localStorage.getItem('emptynet_node7_lowering_lights_answered') === '1';
   let lastFrame = performance.now();
   const eyeTarget = new THREE.Vector3();
 
@@ -119,26 +121,30 @@ function install(api) {
     if (!countedCairns && localStorage.getItem('emptynet_three_cairns_counted') === '1') countedCairns = true;
     if (!heardWell && localStorage.getItem('emptynet_old_watch_well_heard') === '1') heardWell = true;
     if (!foundKeeperTally && localStorage.getItem('emptynet_keeper_tally_found') === '1') foundKeeperTally = true;
+    if (!sawLoweringLights && localStorage.getItem('emptynet_lowering_lights_seen') === '1') sawLoweringLights = true;
   }
 
   function updateMessages(distance) {
     refreshLoreFlags();
     if (distance < 230 && thresholdState < 1) {
       thresholdState = 1;
-      if (foundKeeperTally) emit('The carrier signal repeats one word in a pattern too slow to hear as speech: LOWER.');
+      if (sawLoweringLights) emit('The carrier signal divides into six falling tones. A seventh tone holds steady above them.');
+      else if (foundKeeperTally) emit('The carrier signal repeats one word in a pattern too slow to hear as speech: LOWER.');
       else if (heardWell) emit('The carrier signal is no longer above the wind. It is rising through the ground.');
       else emit(countedCairns ? 'A carrier signal repeats in six short beats, then waits for a seventh.' : 'A carrier signal is repeating beneath the wind.');
     }
     if (distance < 92 && thresholdState < 2) {
       thresholdState = 2;
-      if (foundKeeperTally && recognized) emit('Six intervals descend in pitch. The seventh stays level.');
+      if (sawLoweringLights && recognized) emit('The six tones continue below hearing. The seventh refuses to follow.');
+      else if (foundKeeperTally && recognized) emit('Six intervals descend in pitch. The seventh stays level.');
       else if (heardWell && recognized) emit('The signal answers six distant impacts with a single pulse.');
       else if (countedCairns && recognized) emit('The signal pauses exactly where the seventh mark should be.');
       else emit(recognized ? 'The signal already knows you.' : 'The signal has begun using your direction as a reference.');
     }
     if (distance < 24 && thresholdState < 3) {
       thresholdState = 3;
-      if (foundKeeperTally && recognized) emit('YOU FOUND THE ORDER.', 20000);
+      if (sawLoweringLights && recognized) emit('YOU WATCHED THE DESCENT.', 21000);
+      else if (foundKeeperTally && recognized) emit('YOU FOUND THE ORDER.', 20000);
       else if (heardWell && recognized) emit('YOU OPENED A ROAD THAT WAS CLOSED.', 19000);
       else if (countedCairns && recognized) emit('YOU COUNTED THEM.', 18000);
       else emit(recognized ? 'WELCOME BACK.' : 'GOOD. YOU CAME TO ME.', 18000);
@@ -165,6 +171,11 @@ function install(api) {
       answeredKeeperTally = true;
       localStorage.setItem('emptynet_node7_keeper_answered', '1');
       emit('THEY WERE NOT BURIED. THEY WERE LOWERED.', 28000);
+    }
+    if (distance < 5.5 && recognized && sawLoweringLights && !answeredLoweringLights) {
+      answeredLoweringLights = true;
+      localStorage.setItem('emptynet_node7_lowering_lights_answered', '1');
+      emit('THE LOWER HOUSE DID NOT MAKE THE DESCENT. IT ONLY USED IT.', 30000);
     }
     if (distance > 300) thresholdState = 0;
   }
