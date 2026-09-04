@@ -35,8 +35,20 @@ function install(api) {
     const group = new THREE.Group();
     group.name = stationary ? 'Seventh_Light' : `Lowering_Light_${index + 1}`;
 
-    const frame = mark(new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.42, 0.26), iron));
-    group.add(frame);
+    // Open iron cage: the glow is real scene geometry and remains visible through
+    // the frame while still being occluded normally by terrain and structures.
+    for (const x of [-0.11, 0.11]) {
+      for (const z of [-0.11, 0.11]) {
+        const post = mark(new THREE.Mesh(new THREE.BoxGeometry(0.025, 0.38, 0.025), iron));
+        post.position.set(x, 0, z);
+        group.add(post);
+      }
+    }
+    for (const y of [-0.19, 0.19]) {
+      const plate = mark(new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.035, 0.28), iron));
+      plate.position.y = y;
+      group.add(plate);
+    }
 
     const glass = new THREE.MeshStandardMaterial({
       color: stationary ? 0xa7b9aa : 0xc9b57b,
@@ -44,11 +56,12 @@ function install(api) {
       emissiveIntensity: stationary ? 0.75 : 1.15,
       transparent: true,
       opacity: 0,
-      roughness: 0.30
+      roughness: 0.30,
+      depthWrite: false
     });
     glassMaterials.push(glass);
 
-    const pane = mark(new THREE.Mesh(new THREE.SphereGeometry(0.12, 10, 8), glass));
+    const pane = new THREE.Mesh(new THREE.SphereGeometry(0.12, 10, 8), glass);
     pane.scale.set(1.0, 1.25, 1.0);
     group.add(pane);
 
