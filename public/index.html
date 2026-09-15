@@ -14,7 +14,6 @@
     <div class="sub">a persistent seeded field on the old network</div>
     <div class="seed-row"><span>SEED</span><span>FIELD-28031997</span></div>
     <div class="status-row"><span>NODE</span><span id="node-status">OFFLINE</span></div>
-    
     <div class="avatar-label">CHOOSE SHELL</div>
     <div class="avatar-grid">
       <button class="avatar-card active" type="button" data-avatar="wanderer"><span class="avatar-preview preview-wanderer"></span><span class="avatar-name">WANDERER</span></button>
@@ -26,7 +25,6 @@
     <button id="connect">CONNECT</button>
     <div class="tiny">WASD move · mouse look · E interact · T chat · N leave note · M audio</div>
   </section>
-
   <div id="game" class="hidden">
     <canvas id="view"></canvas>
     <div id="loading">entering field…</div><div id="crosshair"><span></span></div><div id="lock-help">click to enter</div>
@@ -34,10 +32,8 @@
     <div id="presence" class="hud-block right">NO LOCAL SIGNALS</div><div id="audio-state" class="hud-block audio">AUDIO ON</div><div id="feed"></div><div id="hint"></div>
     <div id="screen-fx"></div><div id="grain"></div>
   </div>
-
   <div id="prompt" class="panel modal hidden"><div id="prompt-title" class="modal-title">INPUT</div><textarea id="prompt-text" maxlength="800" spellcheck="false"></textarea><div class="row"><button id="prompt-ok">SAVE</button><button id="prompt-cancel" class="quiet">CANCEL</button></div></div>
   <div id="terminal" class="panel terminal-panel hidden"><div id="terminal-title" class="modal-title">TERMINAL</div><pre id="terminal-log"></pre><textarea id="terminal-input" maxlength="800" spellcheck="false" placeholder="append message…"></textarea><div class="row"><button id="terminal-write">APPEND</button><button id="terminal-close" class="quiet">CLOSE</button></div></div>
-
   <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
   <script type="module" src="app.js"></script>
   <script type="module" src="world-life.js"></script>
@@ -72,5 +68,6 @@
   <script type="module" src="road-courier.js"></script>
   <script type="module" src="greyfold-drover.js"></script>
   <script type="module" src="greyfold-market.js"></script>
+  <script type="module" src="roadside-camp.js"></script>
 </body>
 </html>
